@@ -132,10 +132,24 @@ class SASRec(nn.Module):
     def save_item_emb(self, item_id, item_feat):
         item_emb = self.feat2emb(input=[item_id, item_feat], include_user=False)
         return item_emb
-
-
-
+    
+    def predict(self,                     
+                user_id,
+                j,
+                user_feat,
+                id_seq,
+                feat_seq,
+                inter_time,
+                act_type,
+                token_type,
+            ):
         
+        log_embs = self.log2embs(user_id, j, user_feat, id_seq, feat_seq, inter_time, act_type, token_type)
+
+        log_embs = log_embs[:, -1, :]
+        user_id = user_id
+
+        return log_embs, user_id
 
 
 

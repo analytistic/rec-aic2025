@@ -92,8 +92,9 @@ class RecDataset(Dataset):
         
     def __len__(self):
         return len(self.interactions_user_ids)
+    
 
-    def __getitem__(self, idx):
+    def _getitem_fortrainer(self, idx):
         user_id = self.interactions_user_ids[idx]
         inter_seq = self.interactions[self.interactions['user_id'] == user_id].reset_index(drop=True)
         length = len(inter_seq)
@@ -139,8 +140,49 @@ class RecDataset(Dataset):
         token_type[j] = 2
 
         return user_id, j, user_feat, id_seq, feat_seq, pos_seq, pos_feat, neg_seq, neg_feat, inter_time, act_type, token_type 
+    
+    def _getitem_fortest(self, idx):
+        user_id = self.interactions_user_ids[idx]
+        inter_seq = self.interactions[self.interactions['user_id'] == user_id].reset_index(drop=True)
+        length = len(inter_seq) + 1
+        id_seq = np.zeros(length, dtype=np.int32)
+        feat_seq = np.zeros((length, len(self.item_feat_dict)), dtype=np.int32)
+        user_feat = np.zeros(len(self.user_feat_dict), dtype=np.int32)
+        act_type = np.zeros(length, dtype=np.int32)
+        token_type = np.zeros(length, dtype=np.int32)
+        inter_time = np.zeros(length, dtype=np.int64)
 
-        
+
+
+        for i in reversed(range(length)):
+            row = inter_seq.iloc[i]
+            act = row['act_type']
+            book_id = row['book_id']
+            ts = row['inter_time']
+            id_seq[i] = book_id
+            act_type[i] = act
+            inter_time[i] = ts
+            token_type[i] = 1
+
+        feat_seq = self.item_features.set_index('book_id').reindex(id_seq)[list(self.item_feat_dict.keys())].fillna(0).astype(np.int32).values
+        user_feat = self.user_features[self.user_features['借阅人'] == user_id].iloc[0][list(self.user_feat_dict.keys())].fillna(0).astype(np.int32).values
+        token_type[0] = 2
+        j = 0
+
+        return user_id, j, user_feat, id_seq, feat_seq, inter_time, act_type, token_type            
+
+
+
+    def __getitem__(self, idx):
+        if self.flag == 'train':
+            return self._getitem_fortrainer(idx)
+        elif self.flag == 'val':
+            return self._getitem_fortrainer(idx)
+        elif self.flag == 'test':
+            return self._getitem_fortest(idx)
+        else:
+            raise ValueError('flag must be train, val or test')
+
     @staticmethod
     def collate_fn(batch):
         (
@@ -160,6 +202,9 @@ class RecDataset(Dataset):
 
         def pad_seqs(seqs):
             return pad_sequence([torch.tensor(seq) for seq in seqs], batch_first=True, padding_value=0, padding_side= 'left')
+        
+        seq_lens = torch.tensor([len(seq) for seq in id_seq])
+
         id_seq = pad_seqs(id_seq)
         feat_seq = pad_seqs(feat_seq)
         pos_seq = pad_seqs(pos_seq)
@@ -171,7 +216,7 @@ class RecDataset(Dataset):
         token_type = pad_seqs(token_type)
         user_feat = torch.tensor(user_feat, dtype=torch.long)
         user_id = torch.tensor(user_id, dtype=torch.long)
-        j = torch.tensor(j, dtype=torch.long)
+        j = torch.tensor(j, dtype=torch.long) + (id_seq.size(1) - seq_lens)
 
         return (
             user_id,

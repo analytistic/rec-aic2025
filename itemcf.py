@@ -34,7 +34,7 @@ def parse_time(time_str):
 
 
 # 加载数据
-def load_data(inter_path='inter_preliminary.csv', user_path='user.csv', item_path='item.csv'):
+def load_data(inter_path='data/inter_preliminary.csv', user_path='data/user.csv', item_path='data/item.csv'):
     # 加载交互数据
     inter_df = pd.read_csv(inter_path)
     inter_df.rename(columns={'借阅时间': 'borrow_time'}, inplace=True)  # 重命名以匹配脚本
@@ -73,14 +73,27 @@ def get_metrics(recom_dict, val_df):
 
 
 if __name__ == "__main__":
+
     print("开始加载和处理数据...")
     inter_df, user_df, item_df = load_data()
 
-    # 时间拆分：假设最后一天为验证集（模拟）
+    # 时间拆分：每个用户最后一次借书为验证集
     inter_df['datetime'] = inter_df['ts'].apply(lambda x: datetime.fromtimestamp(x))
-    inter_df['day'] = inter_df['datetime'].dt.day
-    df_val_offline = inter_df[inter_df['day'] == inter_df['day'].max()].reset_index(drop=True)
-    df_train_offline = inter_df[inter_df['day'] < inter_df['day'].max()].reset_index(drop=True)
+    inter_df = inter_df.sort_values(['user_id', 'datetime']).reset_index(drop=True)
+    # 每个用户最后一次借书
+    df_val_offline = (
+        inter_df
+        .groupby('user_id', as_index=False)
+        .apply(lambda df: df.iloc[-1:])
+        .reset_index(drop=True)
+    )
+    # 训练集为去掉每个用户最后一次借书
+    df_train_offline = (
+        inter_df
+        .groupby('user_id', as_index=False)
+        .apply(lambda df: df.iloc[:-1])
+        .reset_index(drop=True)
+    )
 
     print("构建 user2books 字典（添加续借权重）...")
     df_train_offline = df_train_offline[['user_id', 'book_id', '续借次数']]
@@ -88,6 +101,8 @@ if __name__ == "__main__":
     user2books_dict = {}
     for _, row in user_books.iterrows():
         user2books_dict[row['user_id']] = list(zip(row['book_id'], row['续借次数']))  # (book, renew_count)
+
+    # ...后续代码保
 
     print("计算 book_Sim（Item相似度，添加续借权重）...")
     book_Sim = defaultdict(lambda: defaultdict(float))

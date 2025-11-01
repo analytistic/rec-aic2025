@@ -9,7 +9,7 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from model import SASRec
-
+import os
 
 
 class Trainer(BasicExp):
@@ -195,9 +195,13 @@ class Trainer(BasicExp):
             self.writer.add_scalar('Val/F1', metrics['f1'], global_step)
             print(f"Validation - Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}, F1: {metrics['f1']:.4f}")
             
+            save_path = f'{self.cfg.save_path}/{self.cfg.model.name}/best_model.pth'
+            if not os.path.exists(os.path.dirname(save_path)):
+                os.makedirs(os.path.dirname(save_path))
+
             if metrics['f1'] > best_f1:
                 best_f1 = metrics['f1']
-                torch.save(self.model.state_dict(), f'{self.cfg.save_path}/best_model.pth')
+                torch.save(self.model.state_dict(), save_path)
                 print(f"Best model saved with F1: {best_f1:.4f}")
             
 
