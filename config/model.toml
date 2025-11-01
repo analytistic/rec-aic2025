@@ -1,0 +1,21 @@
+[model]
+
+hidden_units = 64
+
+user_emb_dim = 64
+
+item_emb_dim = 64
+
+user_feat_emb_dim = 64
+
+item_feat_emb_dim = 64
+
+timediff_buckets = 20
+
+[encoder]
+hidden_units = 64
+num_heads = 4
+num_experts = 4
+num_blocks = 4
+
+

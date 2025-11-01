@@ -1,0 +1,6 @@
+log_dir = "logs/"
+
+
+
+[train]
+learning_rate = 0.01

@@ -15,6 +15,7 @@ from model import SASRec
 class Trainer(BasicExp):
     def __init__(self, cfg):
         super(Trainer, self).__init__(cfg)
+        self.cfg = cfg
         self.train_dataset = self._get_dataset('train')
         self.valid_dataset = self._get_dataset('valid')
         self.item_dataset = ItemDataset(pd.read_csv(cfg.dataset.item_features_path), self.train_dataset.item_feat_dict)
@@ -53,7 +54,7 @@ class Trainer(BasicExp):
         map_model = {
             'sasrec': SASRec,
         }
-        return map_model[model_name](self.cfg)
+        return map_model[model_name](cfg=self.cfg, user_id_num=self.train_dataset.user_id_num, item_id_num=self.train_dataset.item_id_num, user_feat_dict=self.train_dataset.user_feat_dict, item_feat_dict=self.train_dataset.item_feat_dict)
     
     def _get_dataset(self, flag='train'):
         interactions = pd.read_csv(self.cfg.dataset.interactions_path)
@@ -164,7 +165,13 @@ class Trainer(BasicExp):
                     act_type,
                     token_type,
                 ) = batch
-                loss = self.model(
+                (
+                    mainloss,
+                    pos_score,
+                    neg_score,
+                    neg_var,
+                    neg_max,
+                ) = self.model(
                     user_id,
                     j,
                     user_feat,
@@ -174,14 +181,14 @@ class Trainer(BasicExp):
                     pos_feat,
                     neg_seq,
                     neg_feat,
-                    inter_time,
+                    inter_time, 
                     act_type,
                     token_type,
                 )
-                loss.backward()
+                mainloss.backward()
                 self.optimizer.step()
-                epoch_loss.append(loss.item())
-                self.writer.add_scalar('Train/Loss', loss.item(), global_step)
+                epoch_loss.append(mainloss.item())
+                self.writer.add_scalar('Train/Loss', mainloss.item(), global_step)
                 global_step += 1
 
             print(f"Epoch {epoch+1}/{self.cfg.train.epochs}, Loss: {sum(epoch_loss)/len(epoch_loss):.4f}")

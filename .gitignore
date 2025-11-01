@@ -10,3 +10,8 @@ wheels/
 .venv
 
 data/
+
+*.log
+*.pth
+*.pyc
+

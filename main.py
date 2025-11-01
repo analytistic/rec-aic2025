@@ -1,5 +1,13 @@
+from src import Trainer
+from config import BaseConfig
+
+
+
 def main():
-    print("Hello from rec-aic2025!")
+
+    cfg = BaseConfig(path='config/', args=None)
+    trainer = Trainer(cfg)
+    trainer.train()
 
 
 if __name__ == "__main__":
