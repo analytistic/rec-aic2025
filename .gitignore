@@ -15,3 +15,8 @@ data/
 *.pth
 *.pyc
 
+checkpoints/
+
+logs/
+
+

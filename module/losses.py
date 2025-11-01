@@ -20,8 +20,8 @@ class RecommendLoss(nn.Module):
             "ado_infonce": self.ado_infonce,
         }
 
-    def forward(self, log_feats, pos_embs, neg_embs, mask, act_0_mask=None, act_1_mask=None, act_2_mask=None):
-        loss, pos_score, neg_score, neg_var, neg_max = self.loss_map[self.loss_type](log_feats, pos_embs, neg_embs, mask, self.cfg, act_0_mask=act_0_mask, act_1_mask=act_1_mask, act_2_mask=act_2_mask)
+    def forward(self, log_feats, pos_embs, neg_embs, token_type, weights=None):
+        loss, pos_score, neg_score, neg_var, neg_max = self.loss_map[self.loss_type](log_feats, pos_embs, neg_embs, token_type, self.cfg)
         return loss, pos_score, neg_score, neg_var, neg_max
 
 
@@ -66,15 +66,16 @@ class RecommendLoss(nn.Module):
 
 
     @staticmethod
-    def ado_infonce(log_feats, pos_embs, neg_embs, mask, cfg, act_0_mask=None, act_1_mask=None, act_2_mask=None):
+    def ado_infonce(log_feats, pos_embs, neg_embs, token_type, cfg):
         """
         ADO InfoNCE loss with in-batch negatives.
         """
-        assert len(log_feats.shape) == 3 and len(pos_embs.shape) == 3 and len(neg_embs.shape) == 4
+        assert len(log_feats.shape) == 3 and len(pos_embs.shape) == 3 and len(neg_embs.shape) == 3
 
         bs, seq_len, dim = log_feats.shape
+        mask = (token_type == 1)
 
-        neg_embs = neg_embs.squeeze(1)  # (bs, seq_len, dim)
+
         log_feats = F.normalize(log_feats, p=2, dim=-1)  # Normalize sequence embeddings
         pos_embs = F.normalize(pos_embs, p=2, dim=-1)
 
@@ -89,7 +90,7 @@ class RecommendLoss(nn.Module):
         logtis = torch.cat([pos_logits.unsqueeze(-1), neg_logitys], dim=-1)  # bs, seq_len, neg_num+1
         
 
-        if cfg.weight_loss.act == True:
+        if cfg.loss.weight_loss.act == True:
             logtis_0 = logtis[(mask == 1) & (act_0_mask == 1)] / cfg.ado_infonce.temperature  
             logtis_1 = logtis[(mask == 1) & (act_1_mask == 1)] / cfg.ado_infonce.temperature
             logtis_2 = logtis[(mask == 1) & (act_2_mask == 1)] / cfg.ado_infonce.temperature

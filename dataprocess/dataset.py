@@ -15,9 +15,11 @@ class RecDataset(Dataset):
         self.flag = flag
         self.user_feat_dict = {}
         self.item_feat_dict = {}
+        self.item_col_feat_dict = {}
         self._preprocess()
         self.item_id_set = set(self.item_features['book_id'].unique())
         self.user_seq_lens = self.interactions.groupby('user_id').size().to_dict()
+    
 
 
 
@@ -30,7 +32,7 @@ class RecDataset(Dataset):
                 self.user_features[col] = self.user_features[col].map(feat_dict)
                 self.user_features[col].fillna(0, inplace=True)
                 self.user_feat_dict[f'{col}'] = len(feat)
-                self.user_id_num = len(self.user_features['user_id'].unique())
+                self.user_id_num = len(self.user_features['借阅人'].unique())
         for col in self.item_features.columns:
             if col not in ['book_id', '题名']:
                 feat = self.item_features[col].unique().tolist()
@@ -39,17 +41,28 @@ class RecDataset(Dataset):
                 self.item_features[col].fillna(0, inplace=True)
                 self.item_feat_dict[f'{col}'] = len(feat)
                 self.item_id_num = len(self.item_features['book_id'].unique())
+                self.item_col_feat_dict[f'{col}'] = feat_dict
 
+
+        self.interactions['还书时间'] = self.interactions['还书时间'].astype(str).str.replace(r'(\d{4}-\d{2}-\d{2})(\d{2}:\d{2}:\d{2})', r'\1 \2', regex=True)
+        self.interactions['续借时间'] = self.interactions['续借时间'].astype(str).str.replace(r'(\d{4}-\d{2}-\d{2})(\d{2}:\d{2}:\d{2})', r'\1 \2', regex=True)
+        # self.interactions['借阅时间'] = self.interactions['借阅时间'].astype(str).str.replace(r'(\d{4}-\d{2}-\d{2})(\d{2}:\d{2}:\d{2})', r'\1 \2', regex=True)
         self.interactions['借阅时间'] = pd.to_datetime(self.interactions['借阅时间'])
         self.interactions['还书时间'] = pd.to_datetime(self.interactions['还书时间'])
-        self.interactions['续借时间'] = pd.to_datetime(self.interactions['续借时间'])
+        # self.interactions['续借时间'] = pd.to_datetime(self.interactions['续借时间'])
         self.interactions = self.interactions.sort_values(by='借阅时间').reset_index(drop=True)
         if self.flag == 'train':
             if isinstance(self.cfg.dataset.train_ratio, float):
                 self.interactions = self.interactions[:int(len(self.interactions) * self.cfg.dataset.train_ratio)]
             else:
-                self.interactions = self.interactions[self.interactions['借阅时间'].dt.day <= self.interactions['借阅时间'].dt.day.max()]
-                self.last_day = self.interactions['借阅时间'].dt.day.max()
+                self.interactions = (
+                    self.interactions
+                    .sort_values(['user_id', '借阅时间'])
+                    .groupby('user_id')
+                    .apply(lambda df: df.iloc[:-1])
+                    .reset_index(drop=True)
+                )
+
         elif self.flag == 'val':
             pass
         elif self.flag == 'test':
@@ -70,6 +83,7 @@ class RecDataset(Dataset):
         interactions = pd.concat([borrow_df, return_df], ignore_index=True)
         self.interactions = interactions[['inter_id', 'user_id', 'book_id', 'inter_time', 'act_type', '续借次数']]
         self.interactions = self.interactions.sort_values(by=['user_id', 'inter_time']).reset_index(drop=True)
+        self.interactions['inter_time'] = self.interactions['inter_time'].astype(np.int64) // 10**9 
 
 
 
@@ -112,16 +126,16 @@ class RecDataset(Dataset):
                 pass
             j -= 1
 
-        feat_seq = self.item_features.set_index('book_id').reindex(id_seq)[list(self.item_feat_dict.keys())].fillna(0).values
-        pos_feat = self.item_features.set_index('book_id').reindex(pos_seq)[list(self.item_feat_dict.keys())].fillna(0).values
+        feat_seq = self.item_features.set_index('book_id').reindex(id_seq)[list(self.item_feat_dict.keys())].fillna(0).astype(np.int32).values
+        pos_feat = self.item_features.set_index('book_id').reindex(pos_seq)[list(self.item_feat_dict.keys())].fillna(0).astype(np.int32).values
         # 负采样
         neg_seq = np.zeros(length, dtype=np.int32)
         id_set = set(inter_seq['book_id'].values)
         neg_candidates = np.array(list(self.item_id_set - id_set))
         neg_seq = np.random.choice(neg_candidates, size=length, replace=True)
-        neg_feat = self.item_features.set_index('book_id').reindex(neg_seq)[list(self.item_feat_dict.keys())].fillna(0).values
+        neg_feat = self.item_features.set_index('book_id').reindex(neg_seq)[list(self.item_feat_dict.keys())].fillna(0).astype(np.int32).values
 
-        user_feat = self.user_features[self.user_features['user_id'] == user_id].iloc[0][list(self.user_feat_dict.keys())].values
+        user_feat = self.user_features[self.user_features['借阅人'] == user_id].iloc[0][list(self.user_feat_dict.keys())].fillna(0).astype(np.int32).values
         token_type[j] = 2
 
         return user_id, j, user_feat, id_seq, feat_seq, pos_seq, pos_feat, neg_seq, neg_feat, inter_time, act_type, token_type 
@@ -176,16 +190,16 @@ class RecDataset(Dataset):
     
 
 class ItemDataset(Dataset):
-    def __init__(self, item_features: pd.DataFrame, feat_dict):
+    def __init__(self, item_features: pd.DataFrame, item_col_feat_dict):
         self.item_features = item_features
-        self.feat_dict = feat_dict
+        self.item_col_feat_dict = item_col_feat_dict
         self.item_ids = item_features['book_id'].unique().tolist()
         self._preprocess()
 
     def _preprocess(self):
         for col in self.item_features.columns:
             if col not in ['book_id', '题名']:
-                self.item_features[col] = self.item_features[col].map(self.feat_dict)
+                self.item_features[col] = self.item_features[col].map(self.item_col_feat_dict[f'{col}'])
                 self.item_features[col].fillna(0, inplace=True)
 
 
@@ -195,7 +209,7 @@ class ItemDataset(Dataset):
 
     def __getitem__(self, idx):
         item_id = self.item_ids[idx]
-        feat = self.item_features[self.item_features['book_id'] == item_id].iloc[0][list(self.feat_dict.keys())].values
+        feat = self.item_features[self.item_features['book_id'] == item_id].iloc[0][list(self.item_col_feat_dict.keys())].astype(np.int32).values
         return item_id, feat
     
 

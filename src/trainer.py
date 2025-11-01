@@ -17,22 +17,18 @@ class Trainer(BasicExp):
         super(Trainer, self).__init__(cfg)
         self.cfg = cfg
         self.train_dataset = self._get_dataset('train')
-        self.valid_dataset = self._get_dataset('valid')
-        self.item_dataset = ItemDataset(pd.read_csv(cfg.dataset.item_features_path), self.train_dataset.item_feat_dict)
+        self.valid_dataset = self._get_dataset('val')
+        self.item_dataset = ItemDataset(pd.read_csv(cfg.dataset.item_features_path), self.train_dataset.item_col_feat_dict)
         self.train_loader = DataLoader(
             self.train_dataset,
-            sampler=BucketSampler(self.train_dataset, self.cfg.dataset.batch_size),
-            batch_size=self.cfg.dataset.batch_size,
-            shuffle=True,
+            batch_sampler=BucketSampler(self.train_dataset, self.cfg.dataset.bs * self.cfg.dataset.len, bucket_size=self.cfg.dataset.bucket_size, shuffle=True),
             num_workers=self.cfg.dataset.num_workers,
             collate_fn=self.train_dataset.collate_fn,
             pin_memory=False,
         )
         self.valid_loader = DataLoader(
             self.valid_dataset,
-            sampler=BucketSampler(self.valid_dataset, self.cfg.dataset.batch_size),
-            batch_size=self.cfg.dataset.batch_size,
-            shuffle=False,
+            batch_sampler=BucketSampler(self.valid_dataset, self.cfg.dataset.bs * self.cfg.dataset.len, bucket_size=self.cfg.dataset.bucket_size, shuffle=False),
             num_workers=self.cfg.dataset.num_workers,
             collate_fn=self.valid_dataset.collate_fn,
             pin_memory=False,
@@ -45,7 +41,7 @@ class Trainer(BasicExp):
             collate_fn=self.item_dataset.collate_fn,
             pin_memory=False,
         )
-        self.last_day = self.train_dataset.last_day
+        self.model = self._build_model()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.cfg.train.learning_rate)
         self.writer = SummaryWriter(log_dir=self.cfg.log_dir)
         
@@ -104,14 +100,13 @@ class Trainer(BasicExp):
                     inter_time,
                     act_type,
                     token_type,
-                    self.last_day,
                 )
                 log_vector.append(log_seq)
-                target_list.append(target_item)
+                target_list.extend(target_item.cpu().numpy().tolist())
             
             for i, batch in tqdm(enumerate(self.item_dataset_loader), total=len(self.item_dataset_loader)):
                 item_id, item_feat = batch
-                item_emb = self.model.item_net(item_id, item_feat)
+                item_emb = self.model.save_item_emb(item_id, item_feat)
                 item_vector.append(item_emb)
 
             item_vector = torch.cat(item_vector, dim=0) # (item_num, dim)
@@ -122,10 +117,10 @@ class Trainer(BasicExp):
                 log_vector[i] = log_vector[i]
                 scores = torch.matmul(log_vector[i], item_vector.T)
                 _, top1 = scores.topk(1, dim=-1)
-                top1_list.append(self.item_dataset.item_ids[top1.item()])
+                top1_list.extend(top1.squeeze(-1).cpu().numpy().tolist())
 
 
-        target_list = [item for sublist in target_list if sublist is not None for item in sublist]
+
 
         y_pred = np.array(top1_list, dtype=np.int32)
         y_true = np.array(target_list, dtype=np.int32)
@@ -198,10 +193,11 @@ class Trainer(BasicExp):
             self.writer.add_scalar('Val/Precision', metrics['precision'], global_step)
             self.writer.add_scalar('Val/Recall', metrics['recall'], global_step)
             self.writer.add_scalar('Val/F1', metrics['f1'], global_step)
+            print(f"Validation - Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}, F1: {metrics['f1']:.4f}")
             
             if metrics['f1'] > best_f1:
                 best_f1 = metrics['f1']
-                torch.save(self.model.state_dict(), self.cfg.save_path)
+                torch.save(self.model.state_dict(), f'{self.cfg.save_path}/best_model.pth')
                 print(f"Best model saved with F1: {best_f1:.4f}")
             
 

@@ -4,5 +4,12 @@
 interactions_path = "data/inter_reevaluation.csv"
 user_features_path = "data/user.csv"
 item_features_path = "data/item.csv"
-batch_size=256
+bs = 128
+len = 128
+num_workers=0
+bucket_size = 256
+train_ratio = 'last_day'
+
+[dataset.item_loader]
+batch_size = 256
 num_workers=0

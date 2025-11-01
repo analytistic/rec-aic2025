@@ -9,8 +9,8 @@ class SASRec(nn.Module):
     def __init__(self, cfg, user_id_num, item_id_num, user_feat_dict, item_feat_dict):
         super(SASRec, self).__init__()
         self.cfg = cfg
-        self.user_emb = nn.Embedding(user_id_num, cfg.model.user_emb_dim)
-        self.item_emb = nn.Embedding(item_id_num, cfg.model.item_emb_dim)
+        self.user_emb = nn.Embedding(user_id_num+1, cfg.model.user_emb_dim)
+        self.item_emb = nn.Embedding(item_id_num+1, cfg.model.item_emb_dim)
         self.user_feat_embs = nn.ModuleDict()
         for i, v in user_feat_dict.items():
             self.user_feat_embs[i] = nn.Embedding(v + 1, cfg.model.user_feat_emb_dim)
@@ -27,24 +27,24 @@ class SASRec(nn.Module):
     def feat2emb(self, input, include_user=True):
         
         if include_user:
-            user_id, user_feat = input[2,3]
+            user_id, user_feat = input[2], input[3]
             user_emb = self.user_emb(user_id)
             user_feat_list = []
 
-            for i, v in self.user_feat_embs.items():
-                user_feat_list.append(v(user_feat[:, i]))
+            for i, v in enumerate(self.user_feat_embs.items()):
+                user_feat_list.append(v[1](user_feat[:, i]))
 
-            user_feat_emb = torch.cat(user_feat_list, dim=-2)
+            user_feat_emb = torch.stack(user_feat_list, dim=-2)
             user_token = self.user_net(user_emb, user_feat_emb)
         
-        id_seq, feat_seq = input[0,1]
+        id_seq, feat_seq = input[0], input[1]
 
         id_emb = self.item_emb(id_seq)
         item_feat_list = []
-        for i, v in self.item_feat_embs.items():
-            item_feat_list.append(v(feat_seq[:, i]))
+        for i, v in enumerate(self.item_feat_embs.items()):
+            item_feat_list.append(v[1](feat_seq[..., i]))
 
-        item_feat_emb = torch.cat(item_feat_list, dim=-2)
+        item_feat_emb = torch.stack(item_feat_list, dim=-2)
 
         tokens = self.item_net(id_emb, item_feat_emb)
 
@@ -57,7 +57,7 @@ class SASRec(nn.Module):
     
     def log2embs(self, user_id, j, user_feat, id_seq, feat_seq, inter_time, act_type, token_type):
         tokens = self.feat2emb(input=[id_seq, feat_seq, user_id, user_feat, j], include_user=True)
-        log_embs = self.decoder(tokens, inter_time, act_type, token_type)
+        log_embs = self.decoder(tokens, j, inter_time, act_type, token_type)
 
         return log_embs
 
@@ -121,17 +121,17 @@ class SASRec(nn.Module):
             inter_time,
             act_type,
             token_type,
-            last_day,
             ):
         
         log_embs = self.log2embs(user_id, j, user_feat, id_seq, feat_seq, inter_time, act_type, token_type)
-
-        vali_mask = inter_time > last_day
-
-        target_item = pos_seq[vali_mask]
-        log_embs = log_embs[vali_mask]
+        target_item = pos_seq[:, -1]
+        log_embs = log_embs[:, -1, :]
 
         return log_embs, target_item
+    
+    def save_item_emb(self, item_id, item_feat):
+        item_emb = self.feat2emb(input=[item_id, item_feat], include_user=False)
+        return item_emb
 
 
 

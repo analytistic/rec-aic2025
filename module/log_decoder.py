@@ -44,7 +44,7 @@ class LogDecoder(nn.Module):
         self.time_fusion = SeNet(1+4, 10, cfg.hidden_units)
 
 
-    def forward(self, tokens, inter_time, act_type, token_type):
+    def forward(self, tokens, j, inter_time, act_type, token_type):
         """
         Args:
             id_seqs: 序列ID
@@ -73,6 +73,7 @@ class LogDecoder(nn.Module):
         diff_matrix = torch.log(torch.abs(inter_time[:, :, None] - inter_time[:, None, :]) + 1)
         diff_matrix = torch.floor(diff_matrix).to(torch.int64)
         diff_matrix = torch.clamp(diff_matrix, 0, self.cfg.timediff_buckets-1)
+        diff_matrix[torch.arange(batch_size), :, j.clamp(min=0, max=maxlen - 1).long()]=0
         # indices_matrix = torch.searchsorted(self.time_diff_percentiles, diff_matrix, right=True)
         # diff_matrix = torch.where(diff_matrix == len(self.time_diff_percentiles), len(self.time_diff_percentiles) - 1, indices_matrix)
 
@@ -91,7 +92,7 @@ class LogDecoder(nn.Module):
 
         tokens = self.emb_dropout(tokens) 
 
-        mask = token_type == 1
+        mask = (token_type != 1)
 
 
         log_embs = self.encoder(tokens, mask, diff_matrix.to(tokens.device))  # (bs, seq_len, dim)
