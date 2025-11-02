@@ -129,11 +129,12 @@ class Trainer(BasicExp):
                     continue
                 log_vector[i] = log_vector[i]
                 scores = torch.matmul(log_vector[i], item_vector.T)
-                _, top1_index = scores.topk(1, dim=-1)
-                top1_index_list.extend(top1_index.squeeze(-1).cpu().numpy().tolist())
+                _, top1 = scores.topk(1, dim=-1)
+                top1_index_list.extend(top1.squeeze(-1).cpu().numpy().tolist())
 
 
         top1_list = [book_id[i] for i in top1_index_list]
+        top1_index_list = np.array(top1_index_list, dtype=np.int32)
 
         y_pred = np.array(top1_list, dtype=np.int32)
         y_true = np.array(target_list, dtype=np.int32)
@@ -141,11 +142,13 @@ class Trainer(BasicExp):
         precision = precision_score(y_true, y_pred, average='micro', zero_division=0)
         recall = recall_score(y_true, y_pred, average='micro', zero_division=0)
         f1 = f1_score(y_true, y_pred, average='micro', zero_division=0)
+        f1_index = f1_score(y_true, top1_index_list, average='micro', zero_division=0)
 
         return {
             "precision": precision,
             "recall": recall,
             "f1": f1,
+            "f1_index": f1_index,
         }   
 
     def train(self):
@@ -209,7 +212,7 @@ class Trainer(BasicExp):
             self.writer.add_scalar('Val/Precision', metrics['precision'], global_step)
             self.writer.add_scalar('Val/Recall', metrics['recall'], global_step)
             self.writer.add_scalar('Val/F1', metrics['f1'], global_step)
-            print(f"Validation - Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}, F1: {metrics['f1']:.4f}")
+            print(f"Validation - Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}, F1: {metrics['f1']:.4f}, F1_index: {metrics['f1_index']}")
             
             save_path = f'{self.cfg.save_path}/{self.cfg.model.name}/best_model.pth'
             if not os.path.exists(os.path.dirname(save_path)):

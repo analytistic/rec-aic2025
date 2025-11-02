@@ -5,7 +5,7 @@ device = 'cpu'
 save_path = 'checkpoints'
 
 [ado_infonce]
-temperature = 0.07
+temperature = 0.09
 
 [loss]
 type = 'ado_infonce'
@@ -16,5 +16,5 @@ act = false
 
 [train]
 learning_rate = 0.01
-epochs = 15
+epochs = 18
 

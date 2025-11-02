@@ -13,9 +13,9 @@ def main():
     trainer.train()
     # trainer.vail(topk=1)
 
-    # infer = Infer(cfg)
-    # top1_rec = infer.predict(topk=1)
-    # top1_rec.savecsv('submission.csv')
+    infer = Infer(cfg)
+    top1_rec = infer.predict(topk=1)
+    top1_rec.savecsv('submission.csv')
 
 
 if __name__ == "__main__":

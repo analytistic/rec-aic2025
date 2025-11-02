@@ -17,4 +17,4 @@ class Top1Rec:
             'book_id': self.top1_item_list,
         })
         df.sort_values('user_id', inplace=True)
-        df.to_csv(filepath, index=False, header=False)
+        df.to_csv(filepath, index=False)

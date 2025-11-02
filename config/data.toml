@@ -4,7 +4,7 @@
 interactions_path = "data/inter_reevaluation.csv"
 user_features_path = "data/user.csv"
 item_features_path = "data/item.csv"
-bs = 256
+bs = 128
 len = 128
 num_workers=0
 bucket_size = 256

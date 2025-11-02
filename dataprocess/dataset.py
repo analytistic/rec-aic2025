@@ -90,7 +90,7 @@ class RecDataset(Dataset):
         return_df['inter_time'] = return_df['还书时间']
         borrow_df['act_type'] = 1  # 借阅
         return_df['act_type'] = 2 # 归还
-        interactions = pd.concat([borrow_df, return_df], ignore_index=True)
+        interactions = pd.concat([borrow_df], ignore_index=True)
         self.interactions = interactions[['inter_id', 'user_id', 'book_id', 'inter_time', 'act_type', '续借次数']]
         self.interactions = self.interactions.sort_values(by=['user_id', 'inter_time']).reset_index(drop=True)
         self.interactions['inter_time'] = self.interactions['inter_time'].astype(np.int64) // 10**9 
