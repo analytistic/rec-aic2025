@@ -1,0 +1,2 @@
+[test]
+checkpoint_path = 'checkpoints/sasrec/best_model.pth'

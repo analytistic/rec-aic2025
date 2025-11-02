@@ -19,4 +19,6 @@ checkpoints/
 
 logs/
 
+*.zip
+
 

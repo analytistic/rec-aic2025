@@ -10,6 +10,7 @@ import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from model import SASRec
 import os
+from functools import partial
 
 
 class Trainer(BasicExp):
@@ -18,19 +19,19 @@ class Trainer(BasicExp):
         self.cfg = cfg
         self.train_dataset = self._get_dataset('train')
         self.valid_dataset = self._get_dataset('val')
-        self.item_dataset = ItemDataset(pd.read_csv(cfg.dataset.item_features_path), self.train_dataset.item_col_feat_dict)
+        self.item_dataset = ItemDataset(pd.read_csv(cfg.dataset.item_features_path), self.train_dataset.item_col_feat_dict, self.train_dataset.book_id2re_id)
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_sampler=BucketSampler(self.train_dataset, self.cfg.dataset.bs * self.cfg.dataset.len, bucket_size=self.cfg.dataset.bucket_size, shuffle=True),
             num_workers=self.cfg.dataset.num_workers,
-            collate_fn=self.train_dataset.collate_fn,
+            collate_fn=partial(self.train_dataset.collate_fn, flag='train'),
             pin_memory=False,
         )
         self.valid_loader = DataLoader(
             self.valid_dataset,
             batch_sampler=BucketSampler(self.valid_dataset, self.cfg.dataset.bs * self.cfg.dataset.len, bucket_size=self.cfg.dataset.bucket_size, shuffle=False),
             num_workers=self.cfg.dataset.num_workers,
-            collate_fn=self.valid_dataset.collate_fn,
+            collate_fn=partial(self.valid_dataset.collate_fn, flag='val'),
             pin_memory=False,
         )
         self.item_dataset_loader = DataLoader(
@@ -69,6 +70,12 @@ class Trainer(BasicExp):
 
         item_vector = []
         log_vector = []
+        book_id = []
+        top1_index_list = []
+        book_id = []
+        
+
+        
 
         with torch.no_grad():
             for i, batch in tqdm(enumerate(self.valid_loader), total=len(self.valid_loader)):
@@ -77,14 +84,18 @@ class Trainer(BasicExp):
                     j,
                     user_feat,
                     id_seq,
+                    reid_seq,
                     feat_seq,
                     pos_seq,
+                    reid_pos_seq,
                     pos_feat,
                     neg_seq,
+                    reid_neg_seq,
                     neg_feat,
                     inter_time,
                     act_type,
                     token_type,
+                    renew_seq,
                 ) = batch
 
                 log_seq, target_item = self.model.vali(
@@ -100,14 +111,16 @@ class Trainer(BasicExp):
                     inter_time,
                     act_type,
                     token_type,
+                    renew_seq,
                 )
                 log_vector.append(log_seq)
                 target_list.extend(target_item.cpu().numpy().tolist())
             
             for i, batch in tqdm(enumerate(self.item_dataset_loader), total=len(self.item_dataset_loader)):
-                item_id, item_feat = batch
+                item_id, re_id, item_feat = batch
                 item_emb = self.model.save_item_emb(item_id, item_feat)
                 item_vector.append(item_emb)
+                book_id.extend(item_id.cpu().numpy().tolist())
 
             item_vector = torch.cat(item_vector, dim=0) # (item_num, dim)
 
@@ -116,11 +129,11 @@ class Trainer(BasicExp):
                     continue
                 log_vector[i] = log_vector[i]
                 scores = torch.matmul(log_vector[i], item_vector.T)
-                _, top1 = scores.topk(1, dim=-1)
-                top1_list.extend(top1.squeeze(-1).cpu().numpy().tolist())
+                _, top1_index = scores.topk(1, dim=-1)
+                top1_index_list.extend(top1_index.squeeze(-1).cpu().numpy().tolist())
 
 
-
+        top1_list = [book_id[i] for i in top1_index_list]
 
         y_pred = np.array(top1_list, dtype=np.int32)
         y_true = np.array(target_list, dtype=np.int32)
@@ -136,8 +149,6 @@ class Trainer(BasicExp):
         }   
 
     def train(self):
-
-
         self.model.to(self.cfg.device)
         self.model.train()
         global_step = 0
@@ -151,14 +162,18 @@ class Trainer(BasicExp):
                     j,
                     user_feat,
                     id_seq,
+                    reid_seq,
                     feat_seq,
                     pos_seq,
+                    reid_pos_seq,
                     pos_feat,
                     neg_seq,
+                    reid_neg_seq,
                     neg_feat,
                     inter_time,
                     act_type,
                     token_type,
+                    renew_seq,
                 ) = batch
                 (
                     mainloss,
@@ -179,6 +194,7 @@ class Trainer(BasicExp):
                     inter_time, 
                     act_type,
                     token_type,
+                    renew_seq,
                 )
                 mainloss.backward()
                 self.optimizer.step()

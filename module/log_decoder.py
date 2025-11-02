@@ -41,10 +41,10 @@ class LogDecoder(nn.Module):
         self.act_fusion = CrossFeatFusion(2*cfg.hidden_units, cfg.hidden_units)
 
 
-        self.time_fusion = SeNet(1+4, 10, cfg.hidden_units)
+        self.time_fusion = SeNet(1+2, 10, cfg.hidden_units)
 
 
-    def forward(self, tokens, j, inter_time, act_type, token_type):
+    def forward(self, tokens, j, inter_time, act_type, token_type, renew_seq):
         """
         Args:
             id_seqs: 序列ID
@@ -65,25 +65,31 @@ class LogDecoder(nn.Module):
 
         pad_mask = (inter_time == 0)
 
-        hour = ((inter_time // 3600) % 24 + 1).masked_fill(pad_mask, 0).to(tokens.device)
+        # hour = ((inter_time // 3600) % 24 + 1).masked_fill(pad_mask, 0).to(tokens.device)
         day = ((inter_time // 86400) % 31 + 1).masked_fill(pad_mask, 0).to(tokens.device)
         month = ((inter_time // (86400 * 30)) % 12 + 1).masked_fill(pad_mask, 0).to(tokens.device)
-        minute = ((inter_time // 60) % 60 + 1).masked_fill(pad_mask, 0).to(tokens.device)
+        # minute = ((inter_time // 60) % 60 + 1).masked_fill(pad_mask, 0).to(tokens.device)
 
         diff_matrix = torch.log(torch.abs(inter_time[:, :, None] - inter_time[:, None, :]) + 1)
         diff_matrix = torch.floor(diff_matrix).to(torch.int64)
         diff_matrix = torch.clamp(diff_matrix, 0, self.cfg.timediff_buckets-1)
         diff_matrix[torch.arange(batch_size), :, j.clamp(min=0, max=maxlen - 1).long()]=0
+
+        # positions = torch.arange(maxlen, device=tokens.device).unsqueeze(0).expand(batch_size, -1)  # (bs, maxlen)
+        # pos_diff_matrix = positions[:, :, None] - positions[:, None, :]  # (bs, maxlen, maxlen)
+        # pos_diff_matrix = torch.abs(pos_diff_matrix)  # 取绝对值
+        # pos_diff_matrix = torch.clamp(pos_diff_matrix, 0, self.cfg.pos_buckets-1)  # 限制范围
+        # pos_diff_matrix[torch.arange(batch_size), :, j.clamp(min=0, max=maxlen - 1).long()] = 0  
         # indices_matrix = torch.searchsorted(self.time_diff_percentiles, diff_matrix, right=True)
         # diff_matrix = torch.where(diff_matrix == len(self.time_diff_percentiles), len(self.time_diff_percentiles) - 1, indices_matrix)
 
-        hour_emb = self.time_stamp_emb["hour"](hour)
+        # hour_emb = self.time_stamp_emb["hour"](hour)
         day_emb = self.time_stamp_emb["day"](day)
         month_emb = self.time_stamp_emb["month"](month)
-        minute_emb = self.time_stamp_emb["minute"](minute)
+        # minute_emb = self.time_stamp_emb["minute"](minute)
 
 
-        time = torch.stack([hour_emb, day_emb, month_emb, minute_emb], dim=-2)
+        time = torch.stack([day_emb, month_emb], dim=-2)
         tokens = self.time_fusion(torch.cat([tokens.unsqueeze(2), time], dim=-2))
 
 
@@ -92,9 +98,10 @@ class LogDecoder(nn.Module):
 
         tokens = self.emb_dropout(tokens) 
 
-        mask = (token_type != 1)
+        mask = (token_type != 0)
+        
 
 
-        log_embs = self.encoder(tokens, mask, diff_matrix.to(tokens.device))  # (bs, seq_len, dim)
+        log_embs = self.encoder(tokens, mask, diff_matrix = diff_matrix.to(tokens.device), renew_seq = renew_seq)  # (bs, seq_len, dim)
 
         return log_embs

@@ -163,7 +163,7 @@ if __name__ == "__main__":
 
     print("生成提交文件...")
     recom_df = pd.DataFrame(recom_list_all, columns=['user_id', 'book_id'])
-    recom_df.to_csv('submission.csv', index=False, header=True, encoding='utf-8')
+    recom_df.to_csv('itemcf_submission.csv', index=False, header=True, encoding='utf-8')
 
     with zipfile.ZipFile('submission.zip', 'w') as zipf:
         zipf.write('submission.csv')

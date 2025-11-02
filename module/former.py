@@ -21,7 +21,7 @@ class HSTUEncoder(torch.nn.Module):
 
         # self.drop_out = torch.nn.Dropout(p=cfg.ffn_dropout_rate)
 
-    def forward(self, q, mask=None, diff_matrix=None):
+    def forward(self, q, mask=None, diff_matrix=None, renew_seq=None, pos_diff_matrix=None):
 
         ones_matrix = torch.ones((q.shape[1], q.shape[1]), device=q.device, dtype=torch.bool)
         attention_mask_tril = torch.tril(ones_matrix)
@@ -29,9 +29,11 @@ class HSTUEncoder(torch.nn.Module):
         attention_mask_pad = (mask != 0).to(q.device)
 
         attention_mask = attention_mask_tril.unsqueeze(0) & attention_mask_pad.unsqueeze(1)
+        renew_seq = renew_seq.to(q.device)
+        renew_seq = renew_seq.unsqueeze(-2).expand(-1, q.shape[1], -1) # (bs, seq_len, seq_len)
         for i, layer in enumerate(self.layers):
             q_norm = self.norm_layers[i](q)
-            q = layer(q_norm, mask=attention_mask, diff_matrix=diff_matrix) + q
+            q = layer(q_norm, mask=attention_mask, diff_matrix=diff_matrix, renew_seq=renew_seq, pos_diff_matrix=pos_diff_matrix) + q
             q = q + self.ffn_layers[i](self.ffn_norm[i](q))
 
         q = self.last_norm(q)

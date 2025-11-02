@@ -55,9 +55,9 @@ class SASRec(nn.Module):
 
         return tokens
     
-    def log2embs(self, user_id, j, user_feat, id_seq, feat_seq, inter_time, act_type, token_type):
+    def log2embs(self, user_id, j, user_feat, id_seq, feat_seq, inter_time, act_type, token_type, renew_seq):
         tokens = self.feat2emb(input=[id_seq, feat_seq, user_id, user_feat, j], include_user=True)
-        log_embs = self.decoder(tokens, j, inter_time, act_type, token_type)
+        log_embs = self.decoder(tokens, j, inter_time, act_type, token_type, renew_seq)
 
         return log_embs
 
@@ -79,9 +79,10 @@ class SASRec(nn.Module):
                 inter_time,
                 act_type,
                 token_type,
+                renew_seq,
                 ):
         
-        log_embs = self.log2embs(user_id, j, user_feat, id_seq, feat_seq, inter_time, act_type, token_type)
+        log_embs = self.log2embs(user_id, j, user_feat, id_seq, feat_seq, inter_time, act_type, token_type, renew_seq)
 
         pos_embs = self.feat2emb(input=[pos_seq, pos_feat], include_user=False)
         neg_embs = self.feat2emb(input=[neg_seq, neg_feat], include_user=False)
@@ -121,16 +122,19 @@ class SASRec(nn.Module):
             inter_time,
             act_type,
             token_type,
+            renew_seq,
             ):
         
-        log_embs = self.log2embs(user_id, j, user_feat, id_seq, feat_seq, inter_time, act_type, token_type)
+        log_embs = self.log2embs(user_id, j, user_feat, id_seq, feat_seq, inter_time, act_type, token_type, renew_seq)
         target_item = pos_seq[:, -1]
         log_embs = log_embs[:, -1, :]
+        log_embs = torch.nn.functional.normalize(log_embs, p=2, dim=-1)
 
         return log_embs, target_item
     
     def save_item_emb(self, item_id, item_feat):
         item_emb = self.feat2emb(input=[item_id, item_feat], include_user=False)
+        item_emb = torch.nn.functional.normalize(item_emb, p=2, dim=-1)
         return item_emb
     
     def predict(self,                     
@@ -142,11 +146,13 @@ class SASRec(nn.Module):
                 inter_time,
                 act_type,
                 token_type,
+                renew_seq,
             ):
         
-        log_embs = self.log2embs(user_id, j, user_feat, id_seq, feat_seq, inter_time, act_type, token_type)
+        log_embs = self.log2embs(user_id, j, user_feat, id_seq, feat_seq, inter_time, act_type, token_type, renew_seq)
 
         log_embs = log_embs[:, -1, :]
+        log_embs = torch.nn.functional.normalize(log_embs, p=2, dim=-1)
         user_id = user_id
 
         return log_embs, user_id

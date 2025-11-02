@@ -206,13 +206,15 @@ class PointwiseAggregatedAttention(nn.Module):
         # TODO: add relative attention bias based on time
         # self.rab_p = RelativeAttentionBias(num_heads, relative_attention_num_buckets=32,
         #                                    relative_attention_max_distance=128)
-        self.rab_p = MatrixBasedAttentionBias(num_heads, relative_attention_num_buckets=20)
+        self.rab_t = MatrixBasedAttentionBias(num_heads, relative_attention_num_buckets=20)
+        self.rab_r = MatrixBasedAttentionBias(num_heads, relative_attention_num_buckets=5)
+        # self.rab_p = MatrixBasedAttentionBias(num_heads, relative_attention_num_buckets=128)
 
     def split_heads(self, x, batch_size):
         x = x.view(batch_size, -1, self.num_heads, self.head_dim)
         return x.permute(0, 2, 1, 3)
 
-    def forward(self, v, k, q, mask=None, diff_matrix=None):
+    def forward(self, v, k, q, mask=None, diff_matrix=None, renew_seq=None, pos_diff_matrix=None):
         batch_size = q.shape[0]
         q = self.split_heads(q, batch_size)
         k = self.split_heads(k, batch_size)
@@ -220,10 +222,13 @@ class PointwiseAggregatedAttention(nn.Module):
 
 
         attention_scores = torch.matmul(q, k.transpose(-2, -1)) / torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
-        rab = self.rab_p(diff_matrix, device=q.device)
+        rab_t = self.rab_t(diff_matrix, device=q.device)
+        # rab_p = self.rab_p(pos_diff_matrix, device=q.device)
+        rab_r = self.rab_r(renew_seq, device=q.device)
+
 
         # att_w_bias = attention_scores
-        att_w_bias = attention_scores + rab
+        att_w_bias = attention_scores + rab_t + rab_r
 
         att_w_bias = F.silu(att_w_bias).masked_fill(mask.unsqueeze(1).logical_not(), float(0) )
 
@@ -335,13 +340,13 @@ class HSTUBlock(nn.Module):
         u, v, q, k = x.chunk(4, dim=-1)
         return u, v, q, k
 
-    def forward(self, x, mask=None, diff_matrix=None):
+    def forward(self, x, mask=None, diff_matrix=None, renew_seq=None, pos_diff_matrix=None):
         # Pointwise Projection
         x_proj = F.silu(self.f1(x))
         u, v, q, k = self.split(x_proj)
 
         # Spatial Aggregation
-        av = self.pointwise_attn(v, k, q, mask=mask, diff_matrix=diff_matrix)
+        av = self.pointwise_attn(v, k, q, mask=mask, diff_matrix=diff_matrix, renew_seq=renew_seq, pos_diff_matrix=pos_diff_matrix)
 
         # Pointwise Transformation
         y = self.f2(self.norm(av * u))

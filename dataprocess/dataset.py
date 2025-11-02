@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 from .sample import BucketSampler
+from collections import defaultdict
 
 
 class RecDataset(Dataset):
@@ -16,9 +17,11 @@ class RecDataset(Dataset):
         self.user_feat_dict = {}
         self.item_feat_dict = {}
         self.item_col_feat_dict = {}
+        self.book_id2re_id = defaultdict(int)
         self._preprocess()
         self.item_id_set = set(self.item_features['book_id'].unique())
         self.user_seq_lens = self.interactions.groupby('user_id').size().to_dict()
+        # self.item_id_num = len(self.book_id2re_id)
     
 
 
@@ -51,6 +54,14 @@ class RecDataset(Dataset):
         self.interactions['还书时间'] = pd.to_datetime(self.interactions['还书时间'])
         # self.interactions['续借时间'] = pd.to_datetime(self.interactions['续借时间'])
         self.interactions = self.interactions.sort_values(by='借阅时间').reset_index(drop=True)
+        self.maxrenew = self.interactions['续借次数'].max()
+        book_borrow_counts = self.interactions['book_id'].value_counts().sort_values(ascending=False)
+        reid = 1
+        for book_id, count in book_borrow_counts.items():
+            if count > 1:
+                self.book_id2re_id[book_id] = reid
+                reid += 1
+
         if self.flag == 'train':
             if isinstance(self.cfg.dataset.train_ratio, float):
                 self.interactions = self.interactions[:int(len(self.interactions) * self.cfg.dataset.train_ratio)]
@@ -73,7 +84,6 @@ class RecDataset(Dataset):
 
         self.interactions_user_ids = self.interactions['user_id'].unique().tolist()
 
-        # 统一token类型
         borrow_df = self.interactions.copy()
         return_df = self.interactions.copy()
         borrow_df['inter_time'] = borrow_df['借阅时间']
@@ -99,13 +109,17 @@ class RecDataset(Dataset):
         inter_seq = self.interactions[self.interactions['user_id'] == user_id].reset_index(drop=True)
         length = len(inter_seq)
         id_seq = np.zeros(length, dtype=np.int32)
+        reid_seq = np.zeros(length, dtype=np.int32)
         feat_seq = np.zeros((length, len(self.item_feat_dict)), dtype=np.int32)
         user_feat = np.zeros(len(self.user_feat_dict), dtype=np.int32)
         pos_seq = np.zeros(length, dtype=np.int32)
+        reid_pos_seq = np.zeros(length, dtype=np.int32)
+        reid_neg_seq = np.zeros(length, dtype=np.int32)
         pos_feat = np.zeros((length, len(self.item_feat_dict)), dtype=np.int32)
         act_type = np.zeros(length, dtype=np.int32)
         token_type = np.zeros(length, dtype=np.int32)
         inter_time = np.zeros(length, dtype=np.int64)
+        renew_seq = np.zeros(length, dtype=np.int32)
 
         last_borrow_idx = inter_seq[inter_seq['act_type'] == 1].index.max()
         next_borrow = inter_seq.loc[last_borrow_idx, 'book_id']
@@ -116,11 +130,15 @@ class RecDataset(Dataset):
             act = row['act_type']
             book_id = row['book_id']
             ts = row['inter_time']
+            renew = row['续借次数']
             pos_seq[j] = next_borrow
             id_seq[j] = book_id
             act_type[j] = act
             inter_time[j] = ts
             token_type[j] = 1
+            renew_seq[j] = renew
+            reid_seq[j] = self.book_id2re_id.get(book_id, 0)
+            reid_pos_seq[j] = self.book_id2re_id.get(next_borrow, 0)
             if act == 1:
                 next_borrow = book_id
             else:
@@ -134,42 +152,53 @@ class RecDataset(Dataset):
         id_set = set(inter_seq['book_id'].values)
         neg_candidates = np.array(list(self.item_id_set - id_set))
         neg_seq = np.random.choice(neg_candidates, size=length, replace=True)
+        for i in range(length):
+            reid_neg = self.book_id2re_id.get(neg_seq[i], 0)
         neg_feat = self.item_features.set_index('book_id').reindex(neg_seq)[list(self.item_feat_dict.keys())].fillna(0).astype(np.int32).values
 
         user_feat = self.user_features[self.user_features['借阅人'] == user_id].iloc[0][list(self.user_feat_dict.keys())].fillna(0).astype(np.int32).values
         token_type[j] = 2
 
-        return user_id, j, user_feat, id_seq, feat_seq, pos_seq, pos_feat, neg_seq, neg_feat, inter_time, act_type, token_type 
-    
+        return user_id, j, user_feat, id_seq, reid_seq, feat_seq, pos_seq, reid_pos_seq, pos_feat, neg_seq, reid_neg_seq, neg_feat, inter_time, act_type, token_type, renew_seq
+
     def _getitem_fortest(self, idx):
         user_id = self.interactions_user_ids[idx]
         inter_seq = self.interactions[self.interactions['user_id'] == user_id].reset_index(drop=True)
         length = len(inter_seq) + 1
         id_seq = np.zeros(length, dtype=np.int32)
+        reid_seq = np.zeros(length, dtype=np.int32)
         feat_seq = np.zeros((length, len(self.item_feat_dict)), dtype=np.int32)
         user_feat = np.zeros(len(self.user_feat_dict), dtype=np.int32)
         act_type = np.zeros(length, dtype=np.int32)
         token_type = np.zeros(length, dtype=np.int32)
         inter_time = np.zeros(length, dtype=np.int64)
+        renew_seq = np.zeros(length, dtype=np.int32)
 
 
-
+        j = len(inter_seq) - 1
         for i in reversed(range(length)):
-            row = inter_seq.iloc[i]
+            row = inter_seq.iloc[j]
             act = row['act_type']
             book_id = row['book_id']
             ts = row['inter_time']
+            renew = row['续借次数']
             id_seq[i] = book_id
             act_type[i] = act
             inter_time[i] = ts
             token_type[i] = 1
+            renew_seq[i] = renew
+            reid_seq[i] = self.book_id2re_id.get(book_id, 0)
+            j -= 1
+            if j < 0:
+                break
+
 
         feat_seq = self.item_features.set_index('book_id').reindex(id_seq)[list(self.item_feat_dict.keys())].fillna(0).astype(np.int32).values
         user_feat = self.user_features[self.user_features['借阅人'] == user_id].iloc[0][list(self.user_feat_dict.keys())].fillna(0).astype(np.int32).values
         token_type[0] = 2
         j = 0
 
-        return user_id, j, user_feat, id_seq, feat_seq, inter_time, act_type, token_type            
+        return user_id, j, user_feat, id_seq, reid_seq, feat_seq, inter_time, act_type, token_type, renew_seq
 
 
 
@@ -184,60 +213,112 @@ class RecDataset(Dataset):
             raise ValueError('flag must be train, val or test')
 
     @staticmethod
-    def collate_fn(batch):
-        (
-            user_id,
-            j,
-            user_feat,
-            id_seq,
-            feat_seq,
-            pos_seq,
-            pos_feat,
-            neg_seq,
-            neg_feat,
-            inter_time,
-            act_type,
-            token_type,
-        ) = zip(*batch)
-
+    def collate_fn(batch, flag = 'train'):
         def pad_seqs(seqs):
             return pad_sequence([torch.tensor(seq) for seq in seqs], batch_first=True, padding_value=0, padding_side= 'left')
-        
-        seq_lens = torch.tensor([len(seq) for seq in id_seq])
+        if flag == 'train' or flag == 'val':
+            (
+                user_id,
+                j,
+                user_feat,
+                id_seq,
+                reid_seq,
+                feat_seq,
+                pos_seq,
+                reid_pos_seq,
+                pos_feat,
+                neg_seq,
+                reid_neg_seq,
+                neg_feat,
+                inter_time,
+                act_type,
+                token_type,
+                renew_seq,
+            ) = zip(*batch)
+            seq_lens = torch.tensor([len(seq) for seq in id_seq])
 
-        id_seq = pad_seqs(id_seq)
-        feat_seq = pad_seqs(feat_seq)
-        pos_seq = pad_seqs(pos_seq)
-        pos_feat = pad_seqs(pos_feat)
-        neg_seq = pad_seqs(neg_seq)
-        neg_feat = pad_seqs(neg_feat)
-        inter_time = pad_seqs(inter_time)
-        act_type = pad_seqs(act_type)
-        token_type = pad_seqs(token_type)
-        user_feat = torch.tensor(user_feat, dtype=torch.long)
-        user_id = torch.tensor(user_id, dtype=torch.long)
-        j = torch.tensor(j, dtype=torch.long) + (id_seq.size(1) - seq_lens)
+            id_seq = pad_seqs(id_seq)
+            reid_seq = pad_seqs(reid_seq)
+            feat_seq = pad_seqs(feat_seq)
+            pos_seq = pad_seqs(pos_seq)
+            reid_pos_seq = pad_seqs(reid_pos_seq)
+            pos_feat = pad_seqs(pos_feat)
+            neg_seq = pad_seqs(neg_seq)
+            reid_neg_seq = pad_seqs(reid_neg_seq)
+            neg_feat = pad_seqs(neg_feat)
+            inter_time = pad_seqs(inter_time)
+            act_type = pad_seqs(act_type)
+            token_type = pad_seqs(token_type)
+            renew_seq = pad_seqs(renew_seq)
+            user_feat = torch.tensor(user_feat, dtype=torch.long)
+            user_id = torch.tensor(user_id, dtype=torch.long)
+            j = torch.tensor(j, dtype=torch.long) + (id_seq.size(1) - seq_lens)
 
-        return (
-            user_id,
-            j,
-            user_feat,
-            id_seq,
-            feat_seq,
-            pos_seq,
-            pos_feat,
-            neg_seq,
-            neg_feat,
-            inter_time,
-            act_type,
-            token_type,
-        )
+            return (
+                user_id,
+                j,
+                user_feat,
+                id_seq,
+                reid_seq,
+                feat_seq,
+                pos_seq,
+                reid_pos_seq,
+                pos_feat,
+                neg_seq,
+                reid_neg_seq,
+                neg_feat,
+                inter_time,
+                act_type,
+                token_type,
+                renew_seq,
+            )
+        elif flag == 'test':
+            (
+                user_id,
+                j,
+                user_feat,
+                id_seq,
+                reid_seq,
+                feat_seq,
+                inter_time,
+                act_type,
+                token_type,
+                renew_seq,
+            ) = zip(*batch)
+            seq_lens = torch.tensor([len(seq) for seq in id_seq])
+
+            id_seq = pad_seqs(id_seq)
+            reid_seq = pad_seqs(reid_seq)
+            feat_seq = pad_seqs(feat_seq)
+            inter_time = pad_seqs(inter_time)
+            act_type = pad_seqs(act_type)
+            token_type = pad_seqs(token_type)
+            renew_seq = pad_seqs(renew_seq)
+            user_feat = torch.tensor(user_feat, dtype=torch.long)
+            user_id = torch.tensor(user_id, dtype=torch.long)
+            j = torch.tensor(j, dtype=torch.long) + (id_seq.size(1) - seq_lens)
+
+            return (
+                user_id,
+                j,
+                user_feat,
+                id_seq,
+                reid_seq,
+                feat_seq,
+                inter_time,
+                act_type,
+                token_type,
+                renew_seq,
+            )
+        else:
+            raise ValueError('flag must be train, val or test')
     
 
 class ItemDataset(Dataset):
-    def __init__(self, item_features: pd.DataFrame, item_col_feat_dict):
+    def __init__(self, item_features: pd.DataFrame, item_col_feat_dict, book_id2re_id):
         self.item_features = item_features
         self.item_col_feat_dict = item_col_feat_dict
+        self.book_id2re_id = book_id2re_id
         self.item_ids = item_features['book_id'].unique().tolist()
         self._preprocess()
 
@@ -255,15 +336,17 @@ class ItemDataset(Dataset):
     def __getitem__(self, idx):
         item_id = self.item_ids[idx]
         feat = self.item_features[self.item_features['book_id'] == item_id].iloc[0][list(self.item_col_feat_dict.keys())].astype(np.int32).values
-        return item_id, feat
+        re_id = self.book_id2re_id.get(item_id, 0)
+        return item_id, re_id, feat
     
 
     @staticmethod
     def collate_fn(batch):
-        item_ids, feats = zip(*batch)
+        item_ids, re_id, feats = zip(*batch)
         item_ids = torch.tensor(item_ids)
+        re_id = torch.tensor(re_id)
         feats = torch.tensor(feats)
-        return item_ids, feats
+        return item_ids, re_id, feats
 
         
         

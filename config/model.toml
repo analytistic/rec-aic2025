@@ -13,6 +13,8 @@ item_feat_emb_dim = 64
 
 timediff_buckets = 20
 
+pos_buckets = 128
+
 dropout_rate = 0.2
 
 [model.encoder]
