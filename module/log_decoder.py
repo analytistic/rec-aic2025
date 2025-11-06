@@ -98,7 +98,7 @@ class LogDecoder(nn.Module):
 
         tokens = self.emb_dropout(tokens) 
 
-        mask = (token_type != 0)
+        mask = token_type
         
 
 

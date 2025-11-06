@@ -138,10 +138,14 @@ class Trainer(BasicExp):
 
         y_pred = np.array(top1_list, dtype=np.int32)
         y_true = np.array(target_list, dtype=np.int32)
+        N = len(y_true)
+        tp = int(np.sum(y_true == y_pred))
+        f1 = tp/N
+
 
         precision = precision_score(y_true, y_pred, average='micro', zero_division=0)
         recall = recall_score(y_true, y_pred, average='micro', zero_division=0)
-        f1 = f1_score(y_true, y_pred, average='micro', zero_division=0)
+        # f1 = f1_score(y_true, y_pred, average='micro', zero_division=0)
         f1_index = f1_score(y_true, top1_index_list, average='micro', zero_division=0)
 
         return {
@@ -218,8 +222,8 @@ class Trainer(BasicExp):
             if not os.path.exists(os.path.dirname(save_path)):
                 os.makedirs(os.path.dirname(save_path))
 
-            if metrics['f1'] > best_f1:
-                best_f1 = metrics['f1']
+            if metrics['f1_index'] >= best_f1:
+                best_f1 = metrics['f1_index']
                 torch.save(self.model.state_dict(), save_path)
                 print(f"Best model saved with F1: {best_f1:.4f}")
             

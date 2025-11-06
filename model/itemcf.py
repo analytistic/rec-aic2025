@@ -34,7 +34,7 @@ def parse_time(time_str):
 
 
 # 加载数据
-def load_data(inter_path='data/inter_preliminary.csv', user_path='data/user.csv', item_path='data/item.csv'):
+def load_data(inter_path='data/inter_reevaluation.csv', user_path='data/user.csv', item_path='data/item.csv'):
     # 加载交互数据
     inter_df = pd.read_csv(inter_path)
     inter_df.rename(columns={'借阅时间': 'borrow_time'}, inplace=True)  # 重命名以匹配脚本
@@ -165,9 +165,7 @@ if __name__ == "__main__":
     recom_df = pd.DataFrame(recom_list_all, columns=['user_id', 'book_id'])
     recom_df.to_csv('itemcf_submission.csv', index=False, header=True, encoding='utf-8')
 
-    with zipfile.ZipFile('submission.zip', 'w') as zipf:
-        zipf.write('submission.csv')
-    print('submission.zip 已生成！')
+
 
     print("计算离线评估...")
     recom_df_eval = recom_df.groupby('user_id', as_index=False)['book_id'].agg(set)

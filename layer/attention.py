@@ -207,7 +207,7 @@ class PointwiseAggregatedAttention(nn.Module):
         # self.rab_p = RelativeAttentionBias(num_heads, relative_attention_num_buckets=32,
         #                                    relative_attention_max_distance=128)
         self.rab_t = MatrixBasedAttentionBias(num_heads, relative_attention_num_buckets=20)
-        self.rab_r = MatrixBasedAttentionBias(num_heads, relative_attention_num_buckets=5)
+        # self.rab_r = MatrixBasedAttentionBias(num_heads, relative_attention_num_buckets=5)
         # self.rab_p = MatrixBasedAttentionBias(num_heads, relative_attention_num_buckets=128)
 
     def split_heads(self, x, batch_size):
@@ -224,11 +224,11 @@ class PointwiseAggregatedAttention(nn.Module):
         attention_scores = torch.matmul(q, k.transpose(-2, -1)) / torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
         rab_t = self.rab_t(diff_matrix, device=q.device)
         # rab_p = self.rab_p(pos_diff_matrix, device=q.device)
-        rab_r = self.rab_r(renew_seq, device=q.device)
+        # rab_r = self.rab_r(renew_seq, device=q.device)
 
 
         # att_w_bias = attention_scores
-        att_w_bias = attention_scores + rab_t + rab_r
+        att_w_bias = attention_scores + rab_t
 
         att_w_bias = F.silu(att_w_bias).masked_fill(mask.unsqueeze(1).logical_not(), float(0) )
 

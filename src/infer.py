@@ -116,5 +116,5 @@ class Infer(BasicExp):
         topk1_list = [book_id[i] for i in top1_index]
 
 
-        top1_rec = Top1Rec(user_id_list=user_id_list, top1_item_list=top1_index) # 鬼知道什么情况
+        top1_rec = Top1Rec(user_id_list=user_id_list, top1_item_list=topk1_list) # 鬼知道什么情况
         return top1_rec
