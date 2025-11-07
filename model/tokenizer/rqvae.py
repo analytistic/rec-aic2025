@@ -92,7 +92,7 @@ class RQ(nn.Module):
         return C
         
     def _init_codebook(self, input, C, method: str):
-        C.weight.copy_(self._kmeans(input, K=C.num_embeddings, max_iter=20, atol=1e-5, rtol=0.0))
+        C.weight.data.copy_(self._kmeans(input, K=C.num_embeddings, max_iter=20, atol=1e-5, rtol=0.0))
 
     
 
