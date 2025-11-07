@@ -74,23 +74,55 @@ class RQ(nn.Module):
             idx = torch.argmin(dist, dim=-1)
         return idx
     
-    def __commitment_loss__(self, input, quantized):
+    def _kmeans(self, input, K=1024, max_iter=20, atol=1e-5, rtol=0.0, generator=None):
+        N, D = input.shape
+        C = input[torch.randperm(N, generator=generator)[:K], :].clone()
+        for _ in range(max_iter):
+            dist = torch.cdist(input, C, p=2) # N, K
+            index = torch.argmin(dist, dim=-1)
+            C_new = torch.zeros_like(C)
+            counts = torch.bincount(index, minlength=K).clamp(min=1).unsqueeze(-1).to(C.dtype)
+            C_new.index_add_(0, index, input)
+            C_new = C_new/counts
+
+            if torch.allclose(C, C_new, atol=atol, rtol=rtol):
+                C = C_new
+                break
+            C = C_new
+        return C
+        
+    def _init_codebook(self, input, C, method: str):
+        C.weight.copy_(self._kmeans(input, K=C.num_embeddings, max_iter=20, atol=1e-5, rtol=0.0))
+
+    
+
+
+
+    def _commitment_loss(self, input, quantized):
         z2c = F.mse_loss(input, quantized.detach())
         c2z = F.mse_loss(input.detach(), quantized)
         return self.beta * c2z + self.gamma * z2c
     
+    def _EMAup(self, idx):
+        """
+        todo: EMA update
+        """
+        pass
+    
         
 
 
-    def forward(self, input):
+    def forward(self, input, init_codebook: bool = False):
         residual = input.clone()
         output = torch.zeros_like(input)
         commitment_loss = []
         for i in range(len(self.codebooks)):
             C = self.codebooks[i]
+            if init_codebook:
+                self._init_codebook(input, C, method='kmeans')
             idx = self._nearest(residual, C)
             quantized = C(idx)
-            loss = self.__commitment_loss__(residual, quantized)
+            loss = self._commitment_loss(residual, quantized)
             commitment_loss.append(loss)
             output += quantized
             residual = residual - quantized
@@ -100,12 +132,13 @@ class RQ(nn.Module):
     def quantize(self, input):
         residual = input.clone()
         sid = []
-        for i in range(len(self.codebooks)):
-            C = self.codebooks[i]
-            idx = self._nearest(residual, C)
-            sid.append(idx)
-            quantized = C(idx)
-            residual = residual - quantized
+        with torch.no_grad():
+            for i in range(len(self.codebooks)):
+                C = self.codebooks[i]
+                idx = self._nearest(residual, C)
+                sid.append(idx)
+                quantized = C(idx)
+                residual = residual - quantized
 
         return torch.stack(sid, dim=-1)
 
